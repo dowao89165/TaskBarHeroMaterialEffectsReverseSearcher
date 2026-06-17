@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>素材逆引き検索</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 黒すぎない、深みのある柔らかい紺色背景 */
+    body { background-color: #0f172a; } 
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    
+    /* 透過感をもたせて印象を柔らかく */
+    .glass { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(8px); }
+    .part-btn, .stat-btn { transition: all 0.2s ease; }
+  </style>
+</head>
+<body class="text-slate-200 min-h-screen font-sans antialiased selection:bg-blue-500/30">
+
+  <header class="py-2 px-4 border-b border-slate-800 glass sticky top-0 z-50">
+    <div class="max-w-xl mx-auto flex items-center justify-between">
+      <h1 class="text-sm font-bold text-amber-400 tracking-tighter flex items-center gap-1.5">
+        <span>💎</span> 素材逆引き検索
+      </h1>
+      <div id="result-count" class="text-[9px] font-black text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded bg-blue-500/10">
+        Ready
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-xl mx-auto px-3 py-3 space-y-3">
+
+    <section class="glass border border-slate-800 rounded-xl p-2 shadow-sm">
+      <div class="grid grid-cols-4 gap-1.5">
+        <button id="btn-weapon" onclick="selectPart('weapon')" class="part-btn bg-slate-800/60 hover:bg-slate-700 text-[11px] font-bold py-1.5 rounded-lg border border-slate-700/40">⚔️ 武器</button>
+        <button id="btn-armor" onclick="selectPart('armor')" class="part-btn bg-slate-800/60 hover:bg-slate-700 text-[11px] font-bold py-1.5 rounded-lg border border-slate-700/40">🛡️ 防具</button>
+        <button id="btn-accessory" onclick="selectPart('accessory')" class="part-btn bg-slate-800/60 hover:bg-slate-700 text-[11px] font-bold py-1.5 rounded-lg border border-slate-700/40">💍 アクセサリー</button>
+        <button id="btn-all" onclick="selectPart('all')" class="part-btn bg-slate-800/60 hover:bg-slate-700 text-[11px] font-bold py-1.5 rounded-lg border border-slate-700/40 text-amber-400">🌐 全選択</button>
+      </div>
+    </section>
+
+    <section id="stat-section" class="glass border border-slate-800 rounded-xl p-3 shadow-sm hidden">
+      <div id="stat-groups-container" class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+      </div>
+    </section>
+
+    <section id="result-section" class="bg-slate-900/90 border border-slate-800 rounded-xl shadow-2xl hidden overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-800/50 text-slate-400 text-[9px] font-black uppercase tracking-widest border-b border-slate-800">
+              <th class="py-2 px-3">素材名</th>
+              <th class="py-2 px-2 text-center">レア</th>
+              <th class="py-2 px-2 text-center">種類</th>
+              <th class="py-2 px-2 text-center">部位</th>
+              <th class="py-2 px-3 text-right">補正値</th>
+            </tr>
+          </thead>
+          <tbody id="result-tbody" class="divide-y divide-slate-800/40">
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // 29のステータスを7カテゴリに綺麗に分類
+    const STAT_MASTER = {
+      "火炎ダメージ": "属性強化", "冷気ダメージ": "属性強化", "雷ダメージ": "属性強化", "物理ダメージ": "属性強化",
+      "火炎耐性": "属性耐性", "冷気耐性": "属性耐性", "雷耐性": "属性耐性", "カオス耐性": "属性耐性", "全属性耐性": "属性耐性",
+      "攻撃力": "攻撃", "攻撃速度": "攻撃", "クリティカル率": "攻撃", "クリティカルダメージ": "攻撃",
+      "防御力": "防御", "最大HP": "防御", "回避率": "防御", "ブロック率": "防御", "ダメージ吸収": "防御", "ダメージ軽減": "防御",
+      "命中毎HP回復": "回復", "毎秒HP回復": "回復", "ライフ吸収": "回復",
+      "クールダウン短縮": "特殊", "効果範囲": "特殊", "移動速度": "特殊", "詠唱速度": "特殊",
+      "マルチストライク": "固有効果", "投射物数": "固有効果", "基本攻撃要求減少": "固有効果"
+    };
+
+    const GROUP_ORDER = ["属性強化", "属性耐性", "攻撃", "防御", "回復", "特殊", "固有効果"];
+
+    const PART_STATS_POOL = {
+      weapon: ["火炎ダメージ", "冷気ダメージ", "雷ダメージ", "物理ダメージ", "攻撃力", "攻撃速度", "クリティカル率", "クリティカルダメージ", "命中毎HP回復", "ライフ吸収", "効果範囲", "クールダウン短縮", "マルチストライク", "投射物数"],
+      armor: ["火炎耐性", "冷気耐性", "雷耐性", "カオス耐性", "全属性耐性", "防御力", "最大HP", "回避率", "ブロック率", "ダメージ吸収", "ダメージ軽減", "毎秒HP回復", "クールダウン短縮"],
+      accessory: ["攻撃力", "攻撃速度", "クリティカル率", "クリティカルダメージ", "最大HP", "命中毎HP回復", "毎秒HP回復", "ライフ吸収", "クールダウン短縮", "効果範囲", "移動速度", "詠唱速度", "基本攻撃要求減少"]
+    };
+
+    // 元の完全に動作していたデータプール（不具合の原因だった関数呼び出しを単純な数値に修正）
+    const MATERIAL_DATA = [
+      {"Material Name":"スモールルビー","Rarity":"コモン","Type":"装飾","Weapon Effect 1 Stat":"火炎ダメージ","Weapon Effect 1 Min":"20%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"火炎耐性","Armor Effect 1 Min":"5%","Armor Effect 1 Max":"10%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"攻撃力","Accessory Effect 1 Min":1,"Accessory Effect 1 Max":2,"Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"マイナーサファイア","Rarity":"コモン","Type":"装飾","Weapon Effect 1 Stat":"冷気ダメージ","Weapon Effect 1 Min":"20%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"防御力","Armor Effect 1 Min":25,"Armor Effect 1 Max":50,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"10%","Accessory Effect 1 Max":"15%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"マイナートパーズ","Rarity":"コモン","Type":"装飾","Weapon Effect 1 Stat":"雷ダメージ","Weapon Effect 1 Min":"20%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"防御力","Armor Effect 1 Min":"10%","Armor Effect 1 Max":"15%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"詠唱速度","Accessory Effect 1 Min":"8%","Accessory Effect 1 Max":"10%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"スモールエメラルド","Rarity":"コモン","Type":"装飾","Weapon Effect 1 Stat":"攻撃速度","Weapon Effect 1 Min":"5%","Weapon Effect 1 Max":"6%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"ダメージ吸収","Armor Effect 1 Min":10,"Armor Effect 1 Max":"","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"移動速度","Accessory Effect 1 Min":"10%","Accessory Effect 1 Max":"15%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"マイナーアメジスト","Rarity":"コモン","Type":"装飾","Weapon Effect 1 Stat":"物理ダメージ","Weapon Effect 1 Min":"20%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"最大HP","Armor Effect 1 Min":10,"Armor Effect 1 Max":30,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クールダウン短縮","Accessory Effect 1 Min":1,"Accessory Effect 1 Max":"2.50%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ゴブリンの皮","Rarity":"コモン","Type":"刻印","Weapon Effect 1 Stat":"火炎ダメージ","Weapon Effect 1 Min":"20%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"雷ダメージ","Weapon Effect 2 Min":"20%","Weapon Effect 2 Max":"30%","Armor Effect 1 Stat":"冷気耐性","Armor Effect 1 Min":"5%","Armor Effect 1 Max":"10%","Armor Effect 2 Stat":"火炎耐性","Armor Effect 2 Min":"5%","Armor Effect 2 Max":"10%","Accessory Effect 1 Stat":"攻撃速度","Accessory Effect 1 Min":"4%", "Accessory Effect 1 Max":"5%","Accessory Effect 2 Stat":"最大HP","Accessory Effect 2 Min":10,"Accessory Effect 2 Max":30},
+      {"Material Name":"スケルトンボーン","Rarity":"コモン","Type":"刻印","Weapon Effect 1 Stat":"クリティカルダメージ","Weapon Effect 1 Min":"15%","Weapon Effect 1 Max":"20%","Weapon Effect 2 Stat":"火炎ダメージ","Weapon Effect 2 Min":"20%","Weapon Effect 2 Max":"30%","Armor Effect 1 Stat":"防御力","Armor Effect 1 Min":25,"Armor Effect 1 Max":50,"Armor Effect 2 Stat":"防御力","Armor Effect 2 Min":"10%","Armor Effect 2 Max":"15%","Accessory Effect 1 Stat":"命中毎HP回復","Accessory Effect 1 Min":1,"Accessory Effect 1 Max":2,"Accessory Effect 2 Stat":"攻撃速度","Accessory Effect 2 Min":"4%","Accessory Effect 2 Max":"5%"},
+      {"Material Name":"スライムゼリー","Rarity":"コモン","Type":"刻印","Weapon Effect 1 Stat":"攻撃速度","Weapon Effect 1 Min":"5%","Weapon Effect 1 Max":"6%","Weapon Effect 2 Stat":"攻撃力","Weapon Effect 2 Min":2,"Weapon Effect 2 Max":3,"Armor Effect 1 Stat":"ダメージ吸収","Armor Effect 1 Min":10,"Armor Effect 1 Max":"","Armor Effect 2 Stat":"ブロック率","Armor Effect 2 Min":"2.50%","Armor Effect 2 Max":"3.50%","Accessory Effect 1 Stat":"最大HP","Accessory Effect 1 Min":10,"Accessory Effect 1 Max":30,"Accessory Effect 2 Stat":"クリティカル率","Accessory Effect 2 Min":"10%","Accessory Effect 2 Max":"15%"},
+      {"Material Name":"黒曜石の破片","Rarity":"アンコモン","Type":"装飾","Weapon Effect 1 Stat":"攻撃力","Weapon Effect 1 Min":3,"Weapon Effect 1 Max":6,"Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"ブロック率","Armor Effect 1 Min":"3.50%","Armor Effect 1 Max":"4.50%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"攻撃力","Accessory Effect 1 Min":"10%","Accessory Effect 1 Max":"15%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"珊瑚の欠片","Rarity":"アンコモン","Type":"装飾","Weapon Effect 1 Stat":"命中毎HP回復","Weapon Effect 1 Min":1,"Weapon Effect 1 Max":2,"Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"毎秒HP回復","Armor Effect 1 Min":150,"Armor Effect 1 Max":200,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"ライフ吸収","Accessory Effect 1 Min":"1.50%","Accessory Effect 1 Max":"2.50%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"翡翠石","Rarity":"アンコモン","Type":"装飾","Weapon Effect 1 Stat":"クリティカル率","Weapon Effect 1 Min":"20%","Weapon Effect 1 Max":"25%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"回避率","Armor Effect 1 Min":"3.50%","Armor Effect 1 Max":"4.50%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"攻撃速度","Accessory Effect 1 Min":"5%","Accessory Effect 1 Max":"6%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"アンバージェム","Rarity":"アンコモン","Type":"装飾","Weapon Effect 1 Stat":"クリティカルダメージ","Weapon Effect 1 Min":"20%","Weapon Effect 1 Max":"25%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"最大HP","Armor Effect 1 Min":"8%", "Armor Effect 1 Max":"11%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"効果範囲","Accessory Effect 1 Min":"8%","Accessory Effect 1 Max":"9%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ウルフファング","Rarity":"アンコモン","Type":"刻印","Weapon Effect 1 Stat":"効果範囲","Weapon Effect 1 Min":"9%","Weapon Effect 1 Max":"10%","Weapon Effect 2 Stat":"クリティカル率","Weapon Effect 2 Min":"20%","Weapon Effect 2 Max":"25%","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"10%","Armor Effect 1 Max":"15%","Armor Effect 2 Stat":"防御力","Armor Effect 2 Min":"15%","Armor Effect 2 Max":"20%","Accessory Effect 1 Stat":"命中毎HP回復","Accessory Effect 1 Min":2,"Accessory Effect 1 Max":4,"Accessory Effect 2 Stat":"攻撃力","Accessory Effect 2 Min":2,"Accessory Effect 2 Max":3},
+      {"Material Name":"スパイダーシルク","Rarity":"アンコモン","Type":"刻印","Weapon Effect 1 Stat":"効果範囲","Weapon Effect 1 Min":"9%","Weapon Effect 1 Max":"10%","Weapon Effect 2 Stat":"物理ダメージ","Weapon Effect 2 Min":"30%","Weapon Effect 2 Max":"40%","Armor Effect 1 Stat":"冷気耐性","Armor Effect 1 Min":"10%","Armor Effect 1 Max":"15%","Armor Effect 2 Stat":"クールダウン短縮","Armor Effect 2 Min":"2.50%","Armor Effect 2 Max":"4%","Accessory Effect 1 Stat":"クールダウン短縮","Accessory Effect 1 Min":"2.50%","Accessory Effect 1 Max":"4%","Accessory Effect 2 Stat":"最大HP","Accessory Effect 2 Min":30,"Accessory Effect 2 Max":60},
+      {"Material Name":"毒草","Rarity":"アンコモン","Type":"刻印","Weapon Effect 1 Stat":"ライフ吸収","Weapon Effect 1 Min":"2%","Weapon Effect 1 Max":"3%", "Weapon Effect 2 Stat":"雷ダメージ","Weapon Effect 2 Min":"30%","Weapon Effect 2 Max":"40%","Armor Effect 1 Stat":"防御力","Armor Effect 1 Min":50,"Armor Effect 1 Max":100,"Armor Effect 2 Stat":"ダメージ吸収","Armor Effect 2 Min":10,"Armor Effect 2 Max":14,"Accessory Effect 1 Stat":"攻撃力","Accessory Effect 1 Min":2,"Accessory Effect 1 Max":3,"Accessory Effect 2 Stat":"移動速度","Accessory Effect 2 Min":"15%","Accessory Effect 2 Max":"20%"},
+      {"Material Name":"癒しの薬草","Rarity":"アンコモン","Type":"刻印","Weapon Effect 1 Stat":"火炎ダメージ","Weapon Effect 1 Min":"30%","Weapon Effect 1 Max":"40%","Weapon Effect 2 Stat":"冷気ダメージ","Weapon Effect 2 Min":"30%","Weapon Effect 2 Max":"40%","Armor Effect 1 Stat":"回避率","Armor Effect 1 Min":"3.50%","Armor Effect 1 Max":"4.50%","Armor Effect 2 Stat":"最大HP","Armor Effect 2 Min":"8%","Armor Effect 2 Max":"11%","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"15%","Accessory Effect 1 Max":"20%","Accessory Effect 2 Stat":"攻撃力","Accessory Effect 2 Min":2,"Accessory Effect 2 Max":3},
+      {"Material Name":"ルビー","Rarity":"レア","Type":"装飾","Weapon Effect 1 Stat":"火炎ダメージ","Weapon Effect 1 Min":"30%","Weapon Effect 1 Max":"40%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"火炎耐性","Armor Effect 1 Min":"15%","Armor Effect 1 Max":"20%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"攻撃力","Accessory Effect 1 Min":3,"Accessory Effect 1 Max":6,"Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"サファイア","Rarity":"レア","Type":"装飾","Weapon Effect 1 Stat":"冷気ダメージ","Weapon Effect 1 Min":"30%","Weapon Effect 1 Max":"40%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"冷気耐性","Armor Effect 1 Min":"15%","Armor Effect 1 Max":"20%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"20%","Accessory Effect 1 Max":"25%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"トパーズ","Rarity":"レア","Type":"装飾","Weapon Effect 1 Stat":"雷ダメージ","Weapon Effect 1 Min":"30%","Weapon Effect 1 Max":"40%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"15%","Armor Effect 1 Max":"20%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"詠唱速度","Accessory Effect 1 Min":"12%","Accessory Effect 1 Max":"14%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"エメラルド","Rarity":"レア","Type":"装飾","Weapon Effect 1 Stat":"攻撃速度","Weapon Effect 1 Min":"7%", "Weapon Effect 1 Max":"9%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"カオス耐性","Armor Effect 1 Min":"15%","Armor Effect 1 Max":"20%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"移動速度","Accessory Effect 1 Min":"20%","Accessory Effect 1 Max":"25%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"アメジスト","Rarity":"レア","Type":"装飾","Weapon Effect 1 Stat":"物理ダメージ","Weapon Effect 1 Min":"30%","Weapon Effect 1 Max":"40%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"最大HP","Armor Effect 1 Min":60,"Armor Effect 1 Max":90,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クールダウン短縮","Accessory Effect 1 Min":"4%","Accessory Effect 1 Max":"5.50%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"コウモリの翼膜","Rarity":"レア","Type":"刻印","Weapon Effect 1 Stat":"雷ダメージ","Weapon Effect 1 Min":"40%","Weapon Effect 1 Max":"50%","Weapon Effect 2 Stat":"火炎ダメージ","Weapon Effect 2 Min":"40%","Weapon Effect 2 Max":"50%","Armor Effect 1 Stat":"ダメージ軽減","Armor Effect 1 Min":"3%","Armor Effect 1 Max":"4%","Armor Effect 2 Stat":"最大HP","Armor Effect 2 Min":60,"Armor Effect 2 Max":90,"Accessory Effect 1 Stat":"クリティカルダメージ","Accessory Effect 1 Min":"20%","Accessory Effect 1 Max":"25%","Accessory Effect 2 Stat":"命中毎HP回復","Accessory Effect 2 Min":1,"Accessory Effect 2 Max":2},
+      {"Material Name":"オーガブラッド","Rarity":"レア","Type":"刻印","Weapon Effect 1 Stat":"効果範囲","Weapon Effect 1 Min":"10%","Weapon Effect 1 Max":"12%","Weapon Effect 2 Stat":"攻撃力","Weapon Effect 2 Min":"20%","Weapon Effect 2 Max":"25%","Armor Effect 1 Stat":"毎秒HP回復","Armor Effect 1 Min":200,"Armor Effect 1 Max":250,"Armor Effect 2 Stat":"冷気耐性","Armor Effect 2 Min":"15%","Armor Effect 2 Max":"20%","Accessory Effect 1 Stat":"最大HP","Accessory Effect 1 Min":60,"Accessory Effect 1 Max":90,"Accessory Effect 2 Stat":"攻撃力","Accessory Effect 2 Min":3,"Accessory Effect 2 Max":6},
+      {"Material Name":"キノコの胞子","Rarity":"レア","Type":"刻印","Weapon Effect 1 Stat":"クールダウン短縮","Weapon Effect 1 Min":"5.50%","Weapon Effect 1 Max":"7%","Weapon Effect 2 Stat":"命中毎HP回復","Weapon Effect 2 Min":"4%","Weapon Effect 2 Max":"6%","Armor Effect 1 Stat":"ブロック率","Armor Effect 1 Min":"4.50%","Armor Effect 1 Max":"5.50%","Armor Effect 2 Stat":"雷耐性","Armor Effect 2 Min":"15%","Armor Effect 2 Max":"20%","Accessory Effect 1 Stat":"毎秒HP回復","Accessory Effect 1 Min":200,"Accessory Effect 1 Max":250,"Accessory Effect 2 Stat":"最大HP","Accessory Effect 2 Min":60,"Accessory Effect 2 Max":90},
+      {"Material Name":"古代樹の樹液","Rarity":"レア","Type":"刻印","Weapon Effect 1 Stat":"クリティカルダメージ","Weapon Effect 1 Min":"25%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"効果範囲","Weapon Effect 2 Min":"10%","Weapon Effect 2 Max":"12%","Armor Effect 1 Stat":"毎秒HP回復","Armor Effect 1 Min":200,"Armor Effect 1 Max":250,"Armor Effect 2 Stat":"ダメージ軽減","Armor Effect 2 Min":"3%","Armor Effect 2 Max":"4%","Accessory Effect 1 Stat":"クリティカルダメージ","Accessory Effect 1 Min":"20%","Accessory Effect 1 Max":"25%","Accessory Effect 2 Stat":"攻撃速度","Accessory Effect 2 Min":"6%","Accessory Effect 2 Max":"7%"},
+      {"Material Name":"クリスタルクォーツ","Rarity":"レジェンダリー","Type":"装飾","Weapon Effect 1 Stat":"攻撃力","Weapon Effect 1 Min":10,"Weapon Effect 1 Max":15,"Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"毎秒HP回復","Armor Effect 1 Min":250,"Armor Effect 1 Max":300,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカルダメージ","Accessory Effect 1 Min":"25%","Accessory Effect 1 Max":"30%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"真珠","Rarity":"レジェンダリー","Type":"装飾","Weapon Effect 1 Stat":"クールダウン短縮","Weapon Effect 1 Min":"7%","Weapon Effect 1 Max":"8.50%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"ダメージ軽減","Armor Effect 1 Min":"4%","Armor Effect 1 Max":"5.50%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"25%","Accessory Effect 1 Max":"30%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ターコイズ","Rarity":"レジェンダリー","Type":"装飾","Weapon Effect 1 Stat":"クリティカル率","Weapon Effect 1 Min":"30%","Weapon Effect 1 Max":"35%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"クールダウン短縮","Armor Effect 1 Min":"5.50%","Armor Effect 1 Max":"7%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"最大HP","Accessory Effect 1 Min":90,"Accessory Effect 1 Max":120,"Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ガーネット","Rarity":"レジェンダリー","Type":"装飾","Weapon Effect 1 Stat":"クリティカルダメージ","Weapon Effect 1 Min":"30%","Weapon Effect 1 Max":"40%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"防御力","Armor Effect 1 Min":"25%","Armor Effect 1 Max":"30%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"攻撃速度","Accessory Effect 1 Min":"7%","Accessory Effect 1 Max":"9%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"スカル","Rarity":"レジェンダリー","Type":"刻印","Weapon Effect 1 Stat":"クールダウン短縮","Weapon Effect 1 Min":"7%","Weapon Effect 1 Max":"8.50%","Weapon Effect 2 Stat":"雷ダメージ","Weapon Effect 2 Min":"50%","Weapon Effect 2 Max":"60%","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"20%","Armor Effect 1 Max":"25%","Armor Effect 2 Stat":"カオス耐性","Armor Effect 2 Min":"20%","Armor Effect 2 Max":"25%","Accessory Effect 1 Stat":"詠唱速度","Accessory Effect 1 Min":"14%","Accessory Effect 1 Max":"16%","Accessory Effect 2 Stat":"クリティカルダメージ","Accessory Effect 2 Min":"25%","Accessory Effect 2 Max":"30%"},
+      {"Material Name":"ハーピーの羽","Rarity":"レジェンダリー","Type":"刻印","Weapon Effect 1 Stat":"火炎ダメージ","Weapon Effect 1 Min":"50%","Weapon Effect 1 Max":"60%","Weapon Effect 2 Stat":"攻撃力","Weapon Effect 2 Min":"25%","Weapon Effect 2 Max":"30%","Armor Effect 1 Stat":"ブロック率","Armor Effect 1 Min":"5.50%","Armor Effect 1 Max":"7%","Armor Effect 2 Stat":"ダメージ軽減","Armor Effect 2 Min":"4%","Armor Effect 2 Max":"5.50%","Accessory Effect 1 Stat":"攻撃力","Accessory Effect 1 Min":6,"Accessory Effect 1 Max":10,"Accessory Effect 2 Stat":"最大HP","Accessory Effect 2 Min":90,"Accessory Effect 1 Max":120},
+      {"Material Name":"マンドレイクの根","Rarity":"レジェンダリー","Type":"刻印","Weapon Effect 1 Stat":"命中毎HP回復","Weapon Effect 1 Min":5,"Weapon Effect 1 Max":7,"Weapon Effect 2 Stat":"火炎ダメージ","Weapon Effect 2 Min":"50%","Weapon Effect 2 Max":"60%","Armor Effect 1 Stat":"冷気耐性","Armor Effect 1 Min":"20%","Armor Effect 1 Max":"25%","Armor Effect 2 Stat":"最大HP","Armor Effect 2 Min":90,"Armor Effect 2 Max":120,"Accessory Effect 1 Stat":"ライフ吸収","Accessory Effect 1 Min":"2.50%","Accessory Effect 1 Max":"3.50%","Accessory Effect 2 Stat":"毎秒HP回復","Accessory Effect 2 Min":250,"Accessory Effect 2 Max":300},
+      {"Material Name":"ナイトシェードエキス","Rarity":"レジェンダリー","Type":"刻印","Weapon Effect 1 Stat":"攻撃力","Weapon Effect 1 Min":"25%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"クリティカル率","Weapon Effect 2 Min":"30%","Weapon Effect 2 Max":"35%","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"20%","Armor Effect 1 Max":"25%","Armor Effect 2 Stat":"冷気耐性","Armor Effect 2 Min":"20%","Armor Effect 2 Max":"25%","Accessory Effect 1 Stat":"命中毎HP回復","Accessory Effect 1 Min":"4%","Accessory Effect 1 Max":"6%","Accessory Effect 2 Stat":"クリティカルダメージ","Accessory Effect 2 Min":"25%","Accessory Effect 2 Max":"30%"},
+      {"Material Name":"ダイヤモンド","Rarity":"インモータル","Type":"装飾","Weapon Effect 1 Stat":"攻撃力","Weapon Effect 1 Min":15,"Weapon Effect 1 Max":30,"Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"全属性耐性","Armor Effect 1 Min":"13%","Armor Effect 1 Max":"15%", "Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"効果範囲","Accessory Effect 1 Min":"12%","Accessory Effect 1 Max":"14%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"オパール","Rarity":"インモータル","Type":"装飾","Weapon Effect 1 Stat":"攻撃速度","Weapon Effect 1 Min":"11%","Weapon Effect 1 Max":"13%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"最大HP","Armor Effect 1 Min":"17%","Armor Effect 1 Max":"20%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"毎秒HP回復","Accessory Effect 1 Min":300,"Accessory Effect 1 Max":400,"Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ラピスラズリ","Rarity":"インモータル","Type":"装飾","Weapon Effect 1 Stat":"クリティカル率","Weapon Effect 1 Min":"35%","Weapon Effect 1 Max":"40%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"回避率","Armor Effect 1 Min":"7%","Armor Effect 1 Max":"9%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"移動速度","Accessory Effect 1 Min":"30%","Accessory Effect 1 Max":"35%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ブラックパール","Rarity":"インモータル","Type":"装飾","Weapon Effect 1 Stat":"効果範囲","Weapon Effect 1 Min":"14%","Weapon Effect 1 Max":"17%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"ブロック率","Armor Effect 1 Min":"7%","Armor Effect 1 Max":"9%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"詠唱速度","Accessory Effect 1 Min":"16%","Accessory Effect 1 Max":"20%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"バジリスクの鱗","Rarity":"インモータル","Type":"刻印","Weapon Effect 1 Stat":"ライフ吸収","Weapon Effect 1 Min":"3.50%","Weapon Effect 1 Max":"4.50%","Weapon Effect 2 Stat":"攻撃力","Weapon Effect 2 Min":15,"Weapon Effect 2 Max":30,"Armor Effect 1 Stat":"最大HP","Armor Effect 1 Min":120,"Armor Effect 1 Max":150,"Armor Effect 2 Stat":"ダメージ軽減","Armor Effect 2 Min":"5.50%","Armor Effect 2 Max":"7%","Accessory Effect 1 Stat":"移動速度","Accessory Effect 1 Min":"30%","Accessory Effect 1 Max":"35%","Accessory Effect 2 Stat":"詠唱速度","Accessory Effect 2 Min":"16%","Accessory Effect 2 Max":"20%"},
+      {"Material Name":"ワイバーンの爪","Rarity":"インモータル","Type":"刻印","Weapon Effect 1 Stat":"冷気ダメージ","Weapon Effect 1 Min":"60%", "Weapon Effect 1 Max":"80%","Weapon Effect 2 Stat":"命中毎HP回復","Weapon Effect 2 Min":6,"Weapon Effect 2 Max":8,"Armor Effect 1 Stat":"冷気耐性","Armor Effect 1 Min":"25%","Armor Effect 1 Max":"30%","Armor Effect 2 Stat":"防御力","Armor Effect 2 Min":200,"Armor Effect 2 Max":250,"Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"30%","Accessory Effect 1 Max":"35%","Accessory Effect 2 Stat":"毎秒HP回復","Accessory Effect 2 Min":300,"Accessory Effect 2 Max":400},
+      {"Material Name":"ダイス","Rarity":"インモータル","Type":"刻印","Weapon Effect 1 Stat":"物理ダメージ","Weapon Effect 1 Min":"60%","Weapon Effect 1 Max":"80%","Weapon Effect 2 Stat":"冷気ダメージ","Weapon Effect 2 Min":"60%","Weapon Effect 2 Max":"80%","Armor Effect 1 Stat":"ダメージ吸収","Armor Effect 1 Min":22,"Armor Effect 1 Max":26,"Armor Effect 2 Stat":"ブロック率","Armor Effect 2 Min":"7%","Armor Effect 2 Max":"9%","Accessory Effect 1 Stat":"クールダウン短縮","Accessory Effect 1 Min":"7%","Accessory Effect 1 Max":"8.50%","Accessory Effect 2 Stat":"移動速度","Accessory Effect 2 Min":"30%","Accessory Effect 2 Max":"35%"},
+      {"Material Name":"デーモンブラッド","Rarity":"インモータル","Type":"刻印","Weapon Effect 1 Stat":"効果範囲","Weapon Effect 1 Min":"14%","Weapon Effect 1 Max":"17%","Weapon Effect 2 Stat":"雷ダメージ","Weapon Effect 2 Min":"60%","Weapon Effect 2 Max":"80%","Armor Effect 1 Stat":"ブロック率","Armor Effect 1 Min":"7%","Armor Effect 1 Max":"9%","Armor Effect 2 Stat":"回避率","Armor Effect 2 Min":"7%","Armor Effect 2 Max":"9%","Accessory Effect 1 Stat":"ライフ吸収","Accessory Effect 1 Min":"3%","Accessory Effect 1 Max":"4%","Accessory Effect 2 Stat":"クリティカル率","Accessory Effect 2 Min":"30%","Accessory Effect 2 Max":"35%"},
+      {"Material Name":"アーケインクリスタル","Rarity":"アルカナ","Type":"装飾","Weapon Effect 1 Stat":"詠唱速度","Weapon Effect 1 Min":"25%","Weapon Effect 1 Max":"30%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"クールダウン短縮","Armor Effect 1 Min":"8.50%","Armor Effect 1 Max":"10%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカルダメージ","Accessory Effect 1 Min":"40%","Accessory Effect 1 Max":"50%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ミスティックトパーズ","Rarity":"アルカナ","Type":"装飾","Weapon Effect 1 Stat":"雷ダメージ","Weapon Effect 1 Min":"80%","Weapon Effect 1 Max":"100%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"30%","Armor Effect 1 Max":"35%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"詠唱速度","Accessory Effect 1 Min":"20%","Accessory Effect 1 Max":"25%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"エンチャントルビー","Rarity":"アルカナ","Type":"装飾","Weapon Effect 1 Stat":"火炎ダメージ","Weapon Effect 1 Min":"80%","Weapon Effect 1 Max":"100%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"火炎耐性","Armor Effect 1 Min":"30%","Armor Effect 1 Max":"35%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"攻撃力","Accessory Effect 1 Min":15,"Accessory Effect 1 Max":30,"Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"星光のサファイア","Rarity":"アルカナ","Type":"装飾","Weapon Effect 1 Stat":"冷気ダメージ","Weapon Effect 1 Min":"80%","Weapon Effect 1 Max":"100%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"冷気耐性","Armor Effect 1 Min":"30%","Armor Effect 1 Max":"35%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"35%","Accessory Effect 1 Max":"40%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ミノタウロスの角","Rarity":"アルカナ","Type":"刻印","Weapon Effect 1 Stat":"冷気ダメージ","Weapon Effect 1 Min":"80%","Weapon Effect 1 Max":"100%","Weapon Effect 2 Stat":"攻撃速度","Weapon Effect 2 Min":"13%","Weapon Effect 2 Max":"15%","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"30%","Armor Effect 1 Max":"35%","Armor Effect 2 Stat":"毎秒HP回復","Armor Effect 2 Min":400,"Armor Effect 2 Max":500,"Accessory Effect 1 Stat":"効果範囲","Accessory Effect 1 Min":"14%","Accessory Effect 1 Max":"17%","Accessory Effect 2 Stat":"クールダウン短縮","Accessory Effect 2 Min":"8.50%","Accessory Effect 2 Max":"10%"},
+      {"Material Name":"グリフィンの嘴","Rarity":"アルカナ","Type":"刻印","Weapon Effect 1 Stat":"冷気ダメージ","Weapon Effect 1 Min":"80%","Weapon Effect 1 Max":"100%","Weapon Effect 2 Stat":"攻撃力","Weapon Effect 2 Min":30,"Weapon Effect 2 Max":50,"Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"30%","Armor Effect 1 Max":"35%","Armor Effect 2 Stat":"最大HP","Armor Effect 2 Min":"20%","Armor Effect 2 Max":"25%","Accessory Effect 1 Stat":"詠唱速度","Accessory Effect 1 Min":"20%","Accessory Effect 2 Max":"25%","Accessory Effect 2 Stat":"クリティカルダメージ","Accessory Effect 2 Min":"40%","Accessory Effect 2 Max":"50%"},
+      {"Material Name":"フェニックスの灰","Rarity":"アルカナ","Type":"刻印","Weapon Effect 1 Stat":"クリティカル率","Weapon Effect 1 Min":"40%","Weapon Effect 1 Max":"45%","Weapon Effect 2 Stat":"攻撃力","Weapon Effect 2 Min":30,"Weapon Effect 2 Max":50,"Armor Effect 1 Stat":"ダメージ吸収","Armor Effect 1 Min":26,"Armor Effect 1 Max":30,"Armor Effect 2 Stat":"ダメージ軽減","Armor Effect 2 Min":"7%","Armor Effect 2 Max":"8.50%","Accessory Effect 1 Stat":"攻撃速度","Accessory Effect 1 Min":"11%","Accessory Effect 1 Max":"13%","Accessory Effect 2 Stat":"クリティカルダメージ","Accessory Effect 2 Min":"40%","Accessory Effect 2 Max":"50%"},
+      {"Material Name":"ドラゴンの胆汁","Rarity":"アルカナ","Type":"刻印","Weapon Effect 1 Stat":"クリティカルダメージ","Weapon Effect 1 Min":"50%","Weapon Effect 1 Max":"60%","Weapon Effect 2 Stat":"クリティカル率","Weapon Effect 2 Min":"40%","Weapon Effect 2 Max":"45%","Armor Effect 1 Stat":"回避率","Armor Effect 1 Min":"9%","Armor Effect 1 Max":"11%","Armor Effect 2 Stat":"ブロック率","Armor Effect 2 Min":"9%","Armor Effect 2 Max":"11%","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"35%","Accessory Effect 1 Max":"40%","Accessory Effect 2 Stat":"命中毎HP回復","Accessory Effect 2 Min":6,"Accessory Effect 2 Max":8},
+      {"Material Name":"虚空のオパール","Rarity":"ビヨンド","Type":"装飾","Weapon Effect 1 Stat":"クールダウン短縮","Weapon Effect 1 Min":"11.50%","Weapon Effect 1 Max":"13%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"最大HP","Armor Effect 1 Min":"25%","Armor Effect 1 Max":"30%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"最大HP","Accessory Effect 1 Min":180,"Accessory Effect 1 Max":210,"Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"アストラルダイヤ","Rarity":"ビヨンド","Type":"装飾","Weapon Effect 1 Stat":"攻撃力","Weapon Effect 1 Min":50,"Weapon Effect 1 Max":100,"Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"全属性耐性","Armor Effect 1 Min":"17%","Armor Effect 1 Max":"19%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"効果範囲","Accessory Effect 1 Min":"17%","Accessory Effect 2 Max":"20%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ファントムエメラルド","Rarity":"ビヨンド","Type":"装飾","Weapon Effect 1 Stat":"攻撃速度","Weapon Effect 1 Min":"15%","Weapon Effect 1 Max":"17%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"カオス耐性","Armor Effect 1 Min":"35%","Armor Effect 1 Max":"40%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"移動速度","Accessory Effect 1 Min":"40%","Accessory Effect 1 Max":"45%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"トワイライトアメジスト","Rarity":"ビヨンド","Type":"装飾","Weapon Effect 1 Stat":"物理ダメージ","Weapon Effect 1 Min":"100%","Weapon Effect 1 Max":"130%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"最大HP","Armor Effect 1 Min":180,"Armor Effect 1 Max":210,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クールダウン短縮","Accessory Effect 1 Min":"8.50%","Accessory Effect 1 Max":"10%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"レイスの精髄","Rarity":"ビヨンド","Type":"刻印","Weapon Effect 1 Stat":"クリティカルダメージ","Weapon Effect 1 Min":"60%","Weapon Effect 1 Max":"80%","Weapon Effect 2 Stat":"火炎ダメージ","Weapon Effect 2 Min":"100%","Weapon Effect 2 Max":"130%","Armor Effect 1 Stat":"ブロック率","Armor Effect 1 Min":"11%","Armor Effect 1 Max":"13%","Armor Effect 2 Stat":"最大HP","Armor Effect 2 Min":180,"Armor Effect 2 Max":210,"Accessory Effect 1 Stat":"命中毎HP回復","Accessory Effect 1 Min":7,"Accessory Effect 1 Max":9,"Accessory Effect 2 Stat":"クリティカルダメージ","Accessory Effect 2 Min":"50%","Accessory Effect 2 Max":"60%"},
+      {"Material Name":"クラーケンインク","Rarity":"ビヨンド","Type":"刻印","Weapon Effect 1 Stat":"冷気ダメージ","Weapon Effect 1 Min":"100%","Weapon Effect 1 Max":"130%","Weapon Effect 2 Stat":"効果範囲","Weapon Effect 2 Min":"20%","Weapon Effect 2 Max":"23%","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"35%","Armor Effect 1 Max":"40%","Armor Effect 2 Stat":"回避率","Armor Effect 2 Min":"11%","Armor Effect 1 Max":"13%","Accessory Effect 1 Stat":"命中毎HP回復","Accessory Effect 1 Min":7,"Accessory Effect 1 Max":9,"Accessory Effect 2 Stat":"攻撃力","Accessory Effect 2 Min":30,"Accessory Effect 2 Max":50},
+      {"Material Name":"タイタンマロウ","Rarity":"ビヨンド","Type":"刻印","Weapon Effect 1 Stat":"攻撃力","Weapon Effect 1 Min":"50%","Weapon Effect 1 Max":"70%","Weapon Effect 2 Stat":"火炎ダメージ","Weapon Effect 2 Min":"100%","Weapon Effect 2 Max":"130%","Armor Effect 1 Stat":"雷耐性","Armor Effect 1 Min":"35%","Armor Effect 1 Max":"40%","Armor Effect 2 Stat":"ダメージ軽減","Armor Effect 2 Min":"8.50%","Armor Effect 2 Max":"10%","Accessory Effect 1 Stat":"毎秒HP回復","Accessory Effect 1 Min":500,"Accessory Effect 1 Max":700,"Accessory Effect 2 Stat":"最大HP","Accessory Effect 2 Min":180,"Accessory Effect 2 Max":210},
+      {"Material Name":"ヴォイドの精髄","Rarity":"ビヨンド","Type":"刻印","Weapon Effect 1 Stat":"クリティカル率","Weapon Effect 1 Min":"45%","Weapon Effect 1 Max":"50%","Weapon Effect 2 Stat":"命中毎HP回復","Weapon Effect 2 Min":8,"Weapon Effect 2 Max":10,"Armor Effect 1 Stat":"ダメージ軽減","Armor Effect 1 Min":"8.50%","Armor Effect 1 Max":"10%","Armor Effect 2 Stat":"冷気耐性","Armor Effect 2 Min":"35%","Armor Effect 2 Max":"40%","Accessory Effect 1 Stat":"移動速度","Accessory Effect 1 Min":"40%","Accessory Effect 1 Max":"45%","Accessory Effect 2 Stat":"クリティカル率","Accessory Effect 2 Min":"40%","Accessory Effect 2 Max":"45%"},
+      {"Material Name":"セレスティアルパール","Rarity":"セレスティアル","Type":"装飾","Weapon Effect 1 Stat":"クリティカル率","Weapon Effect 1 Min":"50%","Weapon Effect 1 Max":"55%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"ダメージ吸収","Armor Effect 1 Min":40,"Armor Effect 1 Max":50,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"40%","Accessory Effect 1 Max":"45%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"ドラゴナイトクリスタル","Rarity":"セレスティアル","Type":"装飾","Weapon Effect 1 Stat":"クリティカルダメージ","Weapon Effect 1 Min":"80%","Weapon Effect 1 Max":"100%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"防御力","Armor Effect 1 Min":"45%","Armor Effect 1 Max":"50%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"クリティカルダメージ","Accessory Effect 1 Min":"60%","Accessory Effect 1 Max":"80%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"深淵の粘液","Rarity":"セレスティアル","Type":"刻印","Weapon Effect 1 Stat":"火炎ダメージ","Weapon Effect 1 Min":"130%","Weapon Effect 1 Max":"180%","Weapon Effect 2 Stat":"クールダウン短縮","Weapon Effect 2 Min":"13%","Weapon Effect 2 Max":"14.50%","Armor Effect 1 Stat":"防御力","Armor Effect 1 Min":"45%","Armor Effect 1 Max":"50%","Armor Effect 2 Stat":"ブロック率","Armor Effect 2 Min":"13%","Armor Effect 2 Max":"16%","Accessory Effect 1 Stat":"攻撃速度","Accessory Effect 1 Min":"15%","Accessory Effect 1 Max":"17%","Accessory Effect 2 Stat":"移動速度","Accessory Effect 2 Min":"45%","Accessory Effect 2 Max":"50%"},
+      {"Material Name":"カオススポア","Rarity":"セレスティアル","Type":"刻印","Weapon Effect 1 Stat":"物理ダメージ","Weapon Effect 1 Min":"130%","Weapon Effect 1 Max":"180%","Weapon Effect 2 Stat":"攻撃力","Weapon Effect 2 Min":100,"Weapon Effect 2 Max":150,"Armor Effect 1 Stat":"冷気耐性","Armor Effect 1 Min":"40%","Armor Effect 1 Max":"45%","Armor Effect 2 Stat":"カオス耐性","Armor Effect 2 Min":"40%","Armor Effect 2 Max":"45%","Accessory Effect 1 Stat":"移動速度","Accessory Effect 2 Stat":"毎秒HP回復","Accessory Effect 1 Min":700,"Accessory Effect 1 Max":1000},
+      {"Material Name":"ヴォイドクリスタル","Rarity":"ディヴァイン","Type":"装飾","Weapon Effect 1 Stat":"攻撃力","Weapon Effect 1 Min":"100%","Weapon Effect 1 Max":"150%","Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"クールダウン短縮","Armor Effect 1 Min":"13%","Armor Effect 1 Max":"14.50%","Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"攻撃力","Accessory Effect 1 Min":"70%","Accessory Effect 1 Max":"100%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"深淵の真珠","Rarity":"ディヴァイン","Type":"装飾","Weapon Effect 1 Stat":"命中毎HP回復","Weapon Effect 1 Min":10,"Weapon Effect 1 Max":12,"Weapon Effect 2 Stat":"","Weapon Effect 2 Min":"","Weapon Effect 2 Max":"","Armor Effect 1 Stat":"毎秒HP回復","Armor Effect 1 Min":1000,"Armor Effect 1 Max":1500,"Armor Effect 2 Stat":"","Armor Effect 2 Min":"","Armor Effect 2 Max":"","Accessory Effect 1 Stat":"ライフ吸収","Accessory Effect 1 Min":"5%","Accessory Effect 1 Max":"6%","Accessory Effect 2 Stat":"","Accessory Effect 2 Min":"","Accessory Effect 2 Max":""},
+      {"Material Name":"原初の樹液","Rarity":"ディヴァイン","Type":"刻印","Weapon Effect 1 Stat":"効果範囲","Weapon Effect 1 Min":"28%","Weapon Effect 1 Max":"35%","Weapon Effect 2 Stat":"火炎ダメージ","Weapon Effect 2 Min":"180%","Weapon Effect 2 Max":"25%","Armor Effect 1 Stat":"カオス耐性","Armor Effect 1 Min":"45%", "Armor Effect 1 Max":"50%","Armor Effect 2 Stat":"毎秒HP回復","Armor Effect 2 Min":1000,"Armor Effect 2 Max":1500,"Accessory Effect 1 Stat":"詠唱速度","Accessory Effect 1 Min":"35%","Accessory Effect 1 Max":"40%","Accessory Effect 2 Stat":"移動速度","Accessory Effect 2 Min":"50%","Accessory Effect 2 Max":"55%"},
+      {"Material Name":"異界の毒","Rarity":"ディヴァイン","Type":"刻印","Weapon Effect 1 Stat":"命中毎HP回復","Weapon Effect 1 Min":10,"Weapon Effect 1 Max":12,"Weapon Effect 2 Stat":"攻撃速度","Weapon Effect 2 Min":"20%","Weapon Effect 2 Max":"25%","Armor Effect 1 Stat":"ブロック率","Armor Effect 1 Min":"16%","Armor Effect 1 Max":"20%","Armor Effect 2 Stat":"防御力","Armor Effect 2 Min":"50%","Armor Effect 2 Max":"55%","Accessory Effect 1 Stat":"クリティカル率","Accessory Effect 1 Min":"50%","Accessory Effect 1 Max":"55%","Accessory Effect 2 Stat":"クールダウン短縮","Accessory Effect 2 Min":"13%","Accessory Effect 2 Max":"14.50%"},
+      {"Material Name":"エーテルジェム","Rarity":"コズミック","Type":"装飾","Weapon Effect 1 Stat":"マルチストライク","Weapon Effect 1 Min":1, "Weapon Effect 1 Max":"", "Weapon Effect 2 Stat":"", "Weapon Effect 2 Min":"", "Weapon Effect 2 Max":"", "Armor Effect 1 Stat":"ダメージ軽減", "Armor Effect 1 Min":"14%", "Armor Effect 1 Max":"16%", "Armor Effect 2 Stat":"", "Armor Effect 2 Min":"", "Armor Effect 2 Max":"", "Accessory Effect 1 Stat":"基本攻撃要求減少", "Accessory Effect 1 Min":1, "Accessory Effect 1 Max":"", "Accessory Effect 2 Stat":"", "Accessory Effect 2 Min":"", "Accessory Effect 2 Max":""},
+      {"Material Name":"混沌のダイヤモンド","Rarity":"コズミック","Type":"装飾","Weapon Effect 1 Stat":"投射物数", "Weapon Effect 1 Min":1, "Weapon Effect 1 Max":"", "Weapon Effect 2 Stat":"", "Weapon Effect 2 Min":"", "Weapon Effect 2 Max":"", "Armor Effect 1 Stat":"全属性耐性", "Armor Effect 1 Min":"25%", "Armor Effect 1 Max":"30%", "Armor Effect 2 Stat":"", "Armor Effect 2 Min":"", "Armor Effect 2 Max":"", "Accessory Effect 1 Stat":"クリティカルダメージ", "Accessory Effect 1 Min":"100%", "Accessory Effect 1 Max":"150%", "Accessory Effect 2 Stat":"", "Accessory Effect 2 Min":"", "Accessory Effect 2 Max":""},
+      {"Material Name":"チャソダイス","Rarity":"コズミック","Type":"刻印","Weapon Effect 1 Stat":"クリティカル率", "Weapon Effect 1 Min":"2.50%", "Weapon Effect 1 Max":"3%", "Weapon Effect 2 Stat":"攻撃力", "Weapon Effect 2 Min":150, "Weapon Effect 2 Max":300, "Armor Effect 1 Stat":"最大HP", "Armor Effect 1 Min":270, "Armor Effect 1 Max":300, "Armor Effect 2 Stat":"ダメージ吸収", "Armor Effect 2 Min":60, "Armor Effect 2 Max":80, "Accessory Effect 1 Stat":"詠唱速度", "Accessory Effect 1 Min":"40%", "Accessory Effect 1 Max":"50%", "Accessory Effect 2 Stat":"攻撃力", "Accessory Effect 2 Min":150, "Accessory Effect 2 Max":300},
+      {"Material Name":"ヴォイドの触手","Rarity":"コズミック","Type":"刻印","Weapon Effect 1 Stat":"攻撃力", "Weapon Effect 1 Min":"100%", "Weapon Effect 1 Max":"150%", "Weapon Effect 2 Stat":"クリティカルダメージ", "Weapon Effect 2 Min":"100%", "Weapon Effect 2 Max":"150%", "Armor Effect 1 Stat":"火炎耐性", "Armor Effect 1 Min":"50%", "Armor Effect 1 Max":"55%", "Armor Effect 2 Stat":"クールダウン短縮", "Armor Effect 2 Min":"14.50%", "Armor Effect 2 Max":"16%", "Accessory Effect 1 Stat":"最大HP", "Accessory Effect 1 Min":270, "Accessory Effect 1 Max":300, "Accessory Effect 2 Stat":"クリティカル率", "Accessory Effect 2 Min":"55%", "Accessory Effect 2 Max":"60%"}
+    ];
+
+    let currentPart = null;
+    let currentStat = null;
+
+    // 1. 部位選択処理
+    function selectPart(part) {
+      currentPart = part;
+      currentStat = null;
+      
+      // 部位ボタンのアクティブ色変更
+      document.querySelectorAll('.part-btn').forEach(btn => {
+        btn.classList.remove('border-amber-500', 'bg-amber-500/10', 'text-amber-500');
+        btn.classList.add('bg-slate-800/60', 'text-slate-200');
+      });
+      const activeBtn = document.getElementById(`btn-${part}`);
+      if (activeBtn) {
+        activeBtn.classList.remove('bg-slate-800/60', 'text-slate-200');
+        activeBtn.classList.add('border-amber-500', 'bg-amber-500/10', 'text-amber-500');
+      }
+      
+      // 結果表示をリセットして非表示に
+      document.getElementById('result-section').classList.add('hidden');
+      renderStatOptions(part);
+    }
+
+    // 2. カテゴリに分けたステータスボタンの生成
+    function renderStatOptions(part) {
+      const container = document.getElementById('stat-groups-container');
+      container.innerHTML = '';
+
+      let availableStats = [];
+      if (part === 'all') {
+        availableStats = Object.keys(STAT_MASTER);
+      } else {
+        availableStats = PART_STATS_POOL[part] || [];
+      }
+
+      // グループ初期化
+      const grouped = {};
+      GROUP_ORDER.forEach(g => grouped[g] = []);
+      availableStats.forEach(stat => {
+        const groupName = STAT_MASTER[stat] || "特殊";
+        if (grouped[groupName]) grouped[groupName].push(stat);
+      });
+
+      // グループごとにボタンをHTML生成
+      GROUP_ORDER.forEach(groupName => {
+        const statsInGroup = grouped[groupName];
+        if (statsInGroup.length === 0) return;
+
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'space-y-1';
+        
+        const heading = document.createElement('h3');
+        heading.className = 'text-[9px] font-black text-slate-500 uppercase tracking-widest pl-1';
+        heading.innerText = groupName;
+        groupDiv.appendChild(heading);
+
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-2 gap-1'; // 余白をギュッと狭く
+        
+        // 五十音順に綺麗に並べ替え
+        statsInGroup.sort().forEach(stat => {
+          const btn = document.createElement('button');
+          // py-1.5 px-2 で極限までボタンの無駄スペースを排除
+          btn.className = 'stat-btn bg-slate-800/40 hover:bg-slate-700/60 text-[11px] font-medium py-1 px-2 rounded border border-slate-800/60 text-left truncate';
+          btn.innerText = stat;
+          btn.onclick = () => selectStat(stat, btn);
+          grid.appendChild(btn);
+        });
+
+        groupDiv.appendChild(grid);
+        container.appendChild(groupDiv);
+      });
+
+      document.getElementById('stat-section').classList.remove('hidden');
+    }
+
+    // 3. ステータス選択処理
+    function selectStat(stat, element) {
+      currentStat = stat;
+      // オレンジ色をアクセントに選択状態を示す
+      document.querySelectorAll('.stat-btn').forEach(btn => btn.classList.remove('border-orange-500', 'bg-orange-500/10', 'text-orange-500'));
+      element.classList.add('border-orange-500', 'bg-orange-500/10', 'text-orange-500');
+      executeSearch();
+    }
+
+    // 4. データ検索とテーブル反映
+    function executeSearch() {
+      if (!currentPart || !currentStat) return;
+      
+      const tbody = document.getElementById('result-tbody');
+      tbody.innerHTML = '';
+
+      const checkTargets = [];
+      if (currentPart === 'all') {
+        checkTargets.push({ part: '武器', prefix: 'Weapon' });
+        checkTargets.push({ part: '防具', prefix: 'Armor' });
+        checkTargets.push({ part: '装飾', prefix: 'Accessory' });
+      } else {
+        const labelMap = { weapon: '武器', armor: '防具', accessory: '装飾' };
+        checkTargets.push({ part: labelMap[currentPart], prefix: currentPart.charAt(0).toUpperCase() + currentPart.slice(1) });
+      }
+
+      let matchCount = 0;
+
+      MATERIAL_DATA.forEach(material => {
+        checkTargets.forEach(target => {
+          const stat1 = material[`${target.prefix} Effect 1 Stat`];
+          const stat2 = material[`${target.prefix} Effect 2 Stat`];
+
+          if (stat1 === currentStat || stat2 === currentStat) {
+            matchCount++;
+            const isSlot1 = stat1 === currentStat;
+            const min = material[`${target.prefix} Effect ${isSlot1 ? 1 : 2} Min`];
+            const max = material[`${target.prefix} Effect ${isSlot1 ? 1 : 2} Max`];
+            
+            const rarity = material["Rarity"] || "コモン";
+            let rColor = 'text-slate-400';
+            if (rarity === 'ビヨンド') rColor = 'text-red-500 font-bold';
+            else if (rarity === 'ディヴァイン') rColor = 'text-yellow-400 font-bold';
+            else if (rarity === 'インモータル') rColor = 'text-emerald-400 font-bold';
+            else if (rarity === 'アルカナ') rColor = 'text-fuchsia-400 font-bold';
+            else if (rarity === 'コズミック') rColor = 'text-violet-400 font-bold';
+            else if (rarity === 'レジェンダリー') rColor = 'text-amber-600 font-bold';
+            else if (rarity === 'レア') rColor = 'text-blue-400';
+            else if (rarity === 'アンコモン') rColor = 'text-teal-400';
+
+            // MATERIAL_DATA内の現在のオブジェクトのインデックスを取得し、ID（1〜69）に変換
+            const imgId = MATERIAL_DATA.indexOf(material) + 1;
+            const imgPath = `images/${imgId}.png`;
+
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-800/40 transition text-[11px]';
+            tr.innerHTML = `
+              <td class="py-1.5 px-3 font-bold text-slate-100">
+                <div class="flex items-center gap-2">
+                  <img src="${imgPath}" alt="${material["Material Name"]}" class="w-5 h-5 object-contain rounded bg-slate-800/50 shadow-inner" onerror="this.style.opacity='0'">
+                  <span>${material["Material Name"]}</span>
+                </div>
+              </td>
+              <td class="py-1.5 px-2 text-center ${rColor}">${rarity}</td>
+              <td class="py-1.5 px-2 text-center text-[9px] font-bold text-slate-500">${material["Type"] || '装飾'}</td>
+              <td class="py-1.5 px-2 text-slate-400 text-center">${target.part}</td>
+              <td class="py-1.5 px-3 text-right font-mono text-amber-500 font-bold">${min}${(max ? ' ～ ' + max : '')}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+        });
+      });
+
+      document.getElementById('result-count').innerText = `${matchCount} MATCHES`;
+      document.getElementById('result-section').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
